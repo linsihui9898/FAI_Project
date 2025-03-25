@@ -2,14 +2,18 @@ import gym
 from gym import spaces
 import numpy as np
 import random
+from aircraft import Aircraft
+import pygame
 
 class BradleyAirportEnv(gym.Env):
-    def __init__(self):
+    def __init__(self, screen_width=800, screen_height=800):
         super(BradleyAirportEnv, self).__init__()
 
         self.num_runways = 2  
         self.num_taxiways = 1  
-        self.max_aircraft = 10  
+        self.max_aircraft = 10
+        self.screen_width = screen_width
+        self.screen_height = screen_height
 
         # Actions: Choose a runway (0, 1), taxiway (2), or delay (3)
         self.action_space = spaces.Discrete(self.num_runways + self.num_taxiways + 1)
@@ -17,16 +21,22 @@ class BradleyAirportEnv(gym.Env):
         # Observation Space: (traffic level, weather, runway & taxiway availability)
         self.observation_space = spaces.Box(low=0, high=1, shape=(self.num_runways + self.num_taxiways + 2,), dtype=np.float32)
 
+        # Store planes in environment
+        self.planes = []
+
         self.reset()
 
     def reset(self):
         self.runways = [True] * self.num_runways  # All runways available
         self.taxiway = True  # Taxiway is available
-        self.traffic = random.randint(1, self.max_aircraft)  # Random aircraft count
+        self.traffic = 0
+        self.planes = []
         self.weather = random.uniform(0, 1)  # Random weather condition
         self.time_step = 0
-        return np.array([self.traffic, self.weather] + self.runways + [self.taxiway], dtype=np.float32)
+        return np.array(self.planes + [self.traffic, self.weather] + self.runways + [self.taxiway], dtype=np.float32)
 
+    # Need to change actions to be specific to selected aircraft (since there are multiple planes on screen)
+    # Also need to update observations
     def step(self, action):
         reward = 0
         done = False
@@ -72,7 +82,39 @@ class BradleyAirportEnv(gym.Env):
         return np.array([self.traffic, self.weather] + self.runways + [self.taxiway], dtype=np.float32), reward, done, {}
 
     def render(self):
+        if self.render_mode == "human":
+            if self.screen is None:
+                pygame.init()
+                self.screen = pygame.display.set_mode((500, 500))
+                self.clock = pygame.time.Clock()
+
+            self.screen.fill((0, 0, 0))  # Clear screen
+
+            # Draw runways
+            pygame.draw.rect(self.screen, (200, 200, 200), (100, 200, 300, 10))  # Horizontal runway
+            pygame.draw.rect(self.screen, (200, 200, 200), (200, 100, 10, 300))  # Intersecting vertical runway
+
+            # Draw taxiway
+            pygame.draw.rect(self.screen, (100, 100, 100), (80, 200, 10, 150))  # Parallel taxiway
+
+            # Draw each plane
+            for plane in self.planes:
+                pygame.draw.circle(self.screen, plane.color, (int(plane.x), int(plane.y)), plane.size)
+
         print(f"Time Step: {self.time_step} | Traffic: {self.traffic} | Runways: {self.runways} | Taxiway: {self.taxiway} | Weather: {self.weather}")
+
+    # Add a new plane to the environment
+    def add_plane(self):
+        if self.traffic < self.max_aircraft:
+            plane = Aircraft(self.screen_width, self.screen_height)
+            self.planes.append(plane)
+
+    # May need to update observations as well every time tick
+    def update(self):
+        for plane in self.planes:
+            plane.move()
+
+
 
 # ===========================
 # Testing the Environment
