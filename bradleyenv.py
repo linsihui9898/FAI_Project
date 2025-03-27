@@ -2,123 +2,133 @@ import gym
 from gym import spaces
 import numpy as np
 import random
-from aircraft import Aircraft
-import pygame
 
 class BradleyAirportEnv(gym.Env):
-    def __init__(self, screen_width=800, screen_height=800):
+    def __init__(self):
         super(BradleyAirportEnv, self).__init__()
 
-        self.num_runways = 2  
-        self.num_taxiways = 1  
-        self.max_aircraft = 10
-        self.screen_width = screen_width
-        self.screen_height = screen_height
+        # State Space 
+        self.aircraft_size = [0, 1]  # 0: Small, 1: Large
+        self.aircraft_speed = [0, 1, 2]  # Speed buckets (low, medium, high)
+        self.runway_assignment = [0, 1]  # Runway choice (0 or 1)
+        self.runway_direction = [0, 1]  # Runway facing direction
+        self.wind_speed = [0, 1]  # Low or High
+        self.wind_direction = [0, 1, 2, 3]  # North, South, West, East
+        self.takeoff_or_landing = [0, 1]  # 0: Takeoff, 1: Landing
+        self.current_state = [0, 1, 2, 3]  # 0: In Air, 1: Taxiway, 2: Runway, 3: At Gate
 
-        # Actions: Choose a runway (0, 1), taxiway (2), or delay (3)
-        self.action_space = spaces.Discrete(self.num_runways + self.num_taxiways + 1)
+        # Observation Space
+        self.observation_space = spaces.MultiDiscrete([
+            len(self.aircraft_size),
+            len(self.aircraft_speed),
+            len(self.runway_assignment),
+            len(self.runway_direction),
+            len(self.wind_speed),
+            len(self.wind_direction),
+            len(self.takeoff_or_landing),
+            len(self.current_state)
+        ])
 
-        # Observation Space: (traffic level, weather, runway & taxiway availability)
-        self.observation_space = spaces.Box(low=0, high=1, shape=(self.num_runways + self.num_taxiways + 2,), dtype=np.float32)
-
-        # Store planes in environment
-        self.planes = []
+        # Action Space
+        self.action_space = spaces.Discrete(10)  
+        self.actions = {
+            0: "turn_left",
+            1: "turn_right",
+            2: "turn_up",
+            3: "turn_down",
+            4: "assign_runway_0",
+            5: "assign_runway_1",
+            6: "assign_runway_direction_0",
+            7: "assign_runway_direction_1",
+            8: "taxi",
+            9: "wait"
+        }
 
         self.reset()
 
     def reset(self):
-        self.runways = [True] * self.num_runways  # All runways available
-        self.taxiway = True  # Taxiway is available
-        self.traffic = 0
-        self.planes = []
-        self.weather = random.uniform(0, 1)  # Random weather condition
+        
+        self.state = [
+            random.choice(self.aircraft_size),
+            random.choice(self.aircraft_speed),
+            random.choice(self.runway_assignment),
+            random.choice(self.runway_direction),
+            random.choice(self.wind_speed),
+            random.choice(self.wind_direction),
+            random.choice(self.takeoff_or_landing),
+            0  # Assume initially in air
+        ]
         self.time_step = 0
-        return np.array(self.planes + [self.traffic, self.weather] + self.runways + [self.taxiway], dtype=np.float32)
+        return np.array(self.state, dtype=np.int32)
 
-    # Need to change actions to be specific to selected aircraft (since there are multiple planes on screen)
-    # Also need to update observations
     def step(self, action):
+        
         reward = 0
         done = False
         self.time_step += 1
+        aircraft_size, aircraft_speed, runway, runway_dir, wind_speed, wind_dir, mode, current_state = self.state
 
-        # If a runway or taxiway is selected
-        if action < self.num_runways + self.num_taxiways:
-            if action < self.num_runways:  # Runway selected
-                if self.runways[action]:  
-                    self.runways[action] = False  
-                    self.traffic -= 1  
-                    reward = 5  # Large reward for safe landing/takeoff
-                else:
-                    reward = -10  # Large penalty for collision (runway occupied)
-            else:  # Taxiway selected
-                if self.taxiway:
-                    self.taxiway = False  
-                    self.traffic -= 1  
-                    reward = 5  # Successful use of taxiway
-                else:
-                    reward = -10  # Collision on the taxiway
-        else:  
-            reward = -1  # Penalty for delaying
+        
+        if action in [0, 1, 2, 3]:  # Turning
+            if self.time_step > 1 and current_state == 2:  # If already near runway
+                reward -= 10  # Penalty for unnecessary turns near runway
 
-        # Simulate new aircraft arrivals
-        self.traffic += random.randint(0, 1)
-
-        # Weather impact
-        if self.weather < 0.3:
-            close_choice = random.choice(["runway", "taxiway"])
-            if close_choice == "runway":
-                self.runways[random.randint(0, self.num_runways - 1)] = False  
+        elif action in [4, 5]:  # Assign runway
+            if aircraft_size == 1 and action == 4:  # Large aircraft on short runway
+                reward -= 100  # Penalty for landing on the wrong runway
             else:
-                self.taxiway = False  
-        else:  
-            self.runways = [True] * self.num_runways  # Gradually reopen runways
-            self.taxiway = True  
+                self.state[2] = action - 4  # Update runway assignment
 
-        # End condition
-        if self.traffic <= 0 or self.time_step >= 50:
+        elif action in [6, 7]:  # Assign runway direction
+            self.state[3] = action - 6  # Update runway direction
+
+        elif action == 8:  # Taxi
+            if current_state == 2:  # If already on runway, cannot taxi
+                reward -= 10
+            else:
+                self.state[7] = 1  # Move to taxiway
+
+        elif action == 9:  # Wait
+            reward -= 10  # Penalty for waiting too long
+
+        # Check for wind direction mismatch
+        if (runway_dir != wind_dir):
+            reward += 100  # Reward for correct alignment
+        else:
+            reward -= 100  # Penalty for incorrect wind alignment
+
+        # Check if aircraft is landing at too sharp an angle
+        landing_angle = random.randint(-60, 60)  # landing angle
+        if mode == 1 and not (-45 <= landing_angle <= 45):
+            reward -= 200  # Penalty for sharp landing
+
+        # Check for collisions
+        if random.random() < 0.05:  # Simulated 5% chance of aircraft collision
+            reward -= 1000  # Major penalty for crashes
             done = True
 
-        return np.array([self.traffic, self.weather] + self.runways + [self.taxiway], dtype=np.float32), reward, done, {}
+        # Update state randomly for simulation purposes
+        self.state = [
+            aircraft_size,
+            random.choice(self.aircraft_speed),
+            self.state[2],  # Keep runway
+            self.state[3],  # Keep direction
+            random.choice(self.wind_speed),
+            random.choice(self.wind_direction),
+            mode,
+            random.choice(self.current_state)
+        ]
+
+        if self.time_step >= 50:
+            done = True  
+
+        return np.array(self.state, dtype=np.int32), reward, done, {}
 
     def render(self):
-        if self.render_mode == "human":
-            if self.screen is None:
-                pygame.init()
-                self.screen = pygame.display.set_mode((500, 500))
-                self.clock = pygame.time.Clock()
-
-            self.screen.fill((0, 0, 0))  # Clear screen
-
-            # Draw runways
-            pygame.draw.rect(self.screen, (200, 200, 200), (100, 200, 300, 10))  # Horizontal runway
-            pygame.draw.rect(self.screen, (200, 200, 200), (200, 100, 10, 300))  # Intersecting vertical runway
-
-            # Draw taxiway
-            pygame.draw.rect(self.screen, (100, 100, 100), (80, 200, 10, 150))  # Parallel taxiway
-
-            # Draw each plane
-            for plane in self.planes:
-                pygame.draw.circle(self.screen, plane.color, (int(plane.x), int(plane.y)), plane.size)
-
-        print(f"Time Step: {self.time_step} | Traffic: {self.traffic} | Runways: {self.runways} | Taxiway: {self.taxiway} | Weather: {self.weather}")
-
-    # Add a new plane to the environment
-    def add_plane(self):
-        if self.traffic < self.max_aircraft:
-            plane = Aircraft(self.screen_width, self.screen_height)
-            self.planes.append(plane)
-
-    # May need to update observations as well every time tick
-    def update(self):
-        for plane in self.planes:
-            plane.move()
+        print(f"Step: {self.time_step} | State: {self.state} | Actions: {self.actions}")
 
 
-
-# ===========================
 # Testing the Environment
-# ===========================
 
 if __name__ == "__main__":
     env = BradleyAirportEnv()
@@ -134,8 +144,8 @@ if __name__ == "__main__":
             action = env.action_space.sample()  
             next_obs, reward, done, _ = env.step(action)
 
-            print(f"Step {step + 1}: Action={action}, Reward={reward}, Next State={next_obs}")
-            env.render()  
+            print(f"Step {step + 1}: Action={env.actions[action]}, Reward={reward}, Next State={next_obs}")
+            env.render()
 
             if done:
                 print(f"Episode {episode + 1} finished after {step + 1} steps.")
