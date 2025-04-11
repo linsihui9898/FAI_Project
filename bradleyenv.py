@@ -196,23 +196,22 @@ class BradleyAirportEnv(gym.Env):
         self.current_state_options = [0, 1, 2, 3]  # In Air, Taxiway, Runway, At Gate
         # Gate positions at four corners
         self.gate_zones = {
-            0: (self.screen_width - 80, self.screen_height - 80),  # Southeast 
-            1: (self.screen_width - 80, 80),                      # Northeast
-            2: (80, self.screen_height - 80),                     # Southwest
-            3: (80, 80)                                            # Northwest
+            0: (self.screen_width - 80, self.screen_height - 80),  # gate for top entry
+            1: (self.screen_width - 120, self.screen_height - 120) # gate for left entry
         }
+
         self.runway_entries = {
-            4: (100, 205),   # Runway 0, direction 0 (East to West)
-            5: (400, 205),   # Runway 0, direction 1 (West to East)
-            6: (205, 100),   # Runway 1, direction 0 (North to South)
-            7: (205, 400),   # Runway 1, direction 1 (South to North)
+            4: (205, 100),  # Vertical (Top Entry)
+            5: (205, 100),  
+            6: (100, 205),  # Horizontal (Left Entry)
+            7: (100, 205),  
         }
 
         self.runway_exits = {
-            4: (400, 205),
-            5: (100, 205),
-            6: (205, 400),
-            7: (205, 100),
+            4: (205, 400),  # Vertical (Bottom Exit)
+            5: (205, 400),
+            6: (400, 205),  # Horizontal (Right Exit)
+            7: (400, 205),
         }
 
         self.planes = []
@@ -307,18 +306,20 @@ class BradleyAirportEnv(gym.Env):
         return abs(delta) <= np.pi / 4
 
     def is_on_runway(self, plane):
-        if plane.runway in [0, 1]:
-            return 100 < plane.x < 400 and 200 < plane.y < 210
-        else:
+        # For vertical runway (top → bottom)
+        if plane.runway in [4, 5]:  
             return 200 < plane.x < 210 and 100 < plane.y < 400
+        # For horizontal runway (left → right)
+        elif plane.runway in [6, 7]:  
+            return 100 < plane.x < 400 and 200 < plane.y < 210
+        return False
         
     def gate_assign(self, action):
-        return self.gate_zones.get({
-            4: 0,  # east → SE gate
-            5: 1,  # west → NE gate
-            6: 2,  # north → SW gate
-            7: 3   # south → NW gate
-        }[action], self.gate_zones[0]) 
+        if action in [4, 5]:  # Vertical 
+            return self.gate_zones[0]
+        elif action in [6, 7]:  # Horizontal 
+            return self.gate_zones[1]
+        return self.gate_zones[0]
       
     def is_at_gate(self, plane):
         if not hasattr(plane, "gate_target"):
@@ -329,27 +330,31 @@ class BradleyAirportEnv(gym.Env):
     # Function to find the nearest entry based on the pos of the plane, return runway_id and angle
     def find_entry(self, plane):
         options = [
-            (0, 0),             # Runway 0, East
-            (0, np.pi),         # Runway 0, West
-            (1, np.pi/2),       # Runway 1, North
-            (1, -np.pi/2)       # Runway 1, South
+            (4, np.pi / 2),  # Vertical
+            (6, 0),          # Horizontal
         ]
 
         best_score = -float('inf')
-        best_option = (0, 0)
+        best_option = (4, np.pi / 2)
 
         for runway_id, angle in options:
             aligned = self.is_within_pi(plane.direction, angle)
             dx = plane.x - 250
             dy = plane.y - 205
             dist = math.sqrt(dx**2 + dy**2)
-            # Score based on alignment and closeness
             score = (2 if aligned else 0) - 0.01 * dist
             if score > best_score:
                 best_score = score
                 best_option = (runway_id, angle)
 
-        return best_option  
+        return best_option
+    
+    def check_collisions(self, min_dist=30):
+        for i, p1 in enumerate(self.planes):
+            for j, p2 in enumerate(self.planes):
+                if i < j and p1.distance_to(p2.x, p2.y) < min_dist:
+                    return True
+        return False
 
     def execute_action(self, plane: Aircraft, action):
         reward = 0
@@ -393,14 +398,15 @@ class BradleyAirportEnv(gym.Env):
 
                 # Set heading toward the assigned runway entry
                 plane.entry_target = self.runway_entries[action]
+                plane.runway_exit = self.runway_exits[action]
                 plane.set_direction(*plane.entry_target)
 
                 # Check alignment with wind
                 runway_angle = {
-                    4: 0,
-                    5: np.pi,
-                    6: np.pi / 2,
-                    7: -np.pi / 2
+                    4: np.pi / 2,
+                    5: np.pi / 2,
+                    6: 0,
+                    7: 0
                 }[action]
                 aligned = self.is_within_pi(self.wind_direction, runway_angle)
 
@@ -560,15 +566,21 @@ class BradleyAirportEnv(gym.Env):
                 plane.move() 
             elif action in [8, 9, 11, 12]:  
                 plane.move()
-            
+        
+        collision = self.check_collisions()
+        if collision:
+            print("Collision detected!")
+            done = True  
+            total_reward -= 100
+        
         # Clean up planes
         self.planes = [p for p in self.planes if p.flight_state != 3]
         self.total_planes = len(self.planes)
-        return np.array(self.state, dtype=np.float32), total_reward, done, {}
+        return np.array(self.state, dtype=np.float32), total_reward, done, {"collision": collision}
 
     def add_plane(self):
-        entry_edge = random.choice(["top", "left", "bottom", "right"])
-        entry_key = random.choice(list(self.runway_entries.keys()))
+        entry_edge = random.choice(["top", "left"])
+        entry_key = 4 if entry_edge == "top" else 6
         entry = self.runway_entries[entry_key]
         exit = self.runway_exits[entry_key]
         plane = Aircraft(self.screen_width, self.screen_height, entry_edge=entry_edge, entry_target=entry, runway_exit=exit)

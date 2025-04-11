@@ -25,7 +25,7 @@ class Aircraft:
 
         SPEED_FRACTION = 100
         
-        edge = entry_edge if entry_edge else random.choice(["top", "left", "bottom", "right"])
+        edge = entry_edge if entry_edge in ["top", "left"] else random.choice(["top", "left"])
         self.entry_edge = edge
         self.entry_target = entry_target  
         self.runway_exit = runway_exit
@@ -34,15 +34,10 @@ class Aircraft:
         if edge == "left":
             self.x = -10
             self.y = random.randint(100, screen_height - 100)
-        elif edge == "right":
-            self.x = screen_width + 10
-            self.y = random.randint(100, screen_height - 100)
-        elif edge == "top":
+        else:  # "top"
             self.x = random.randint(100, screen_width - 100)
             self.y = -10
-        else:  # "bottom"
-            self.x = random.randint(100, screen_width - 100)
-            self.y = screen_height + 10
+
 
         # Direction aimed toward center of airport 
         target_x = screen_width // 2
@@ -54,8 +49,7 @@ class Aircraft:
         self.runway = None
         self.flight_state = 0
 
-        self.dx = (self.speed / SPEED_FRACTION) * math.cos(self.direction)
-        self.dy = (self.speed / SPEED_FRACTION) * math.sin(self.direction)
+        self._update_velocity()
 
     def move(self):
         self.x += self.dx
@@ -72,12 +66,6 @@ class Aircraft:
         self.direction = self.direction % (2 * np.pi)
 
         self._update_velocity() 
-
-    # Update velocity vector after turning
-        SPEED_FRACTION = 100
-        self.dx = (self.speed / SPEED_FRACTION) * math.cos(self.direction)
-        self.dy = (self.speed / SPEED_FRACTION) * math.sin(self.direction)
-
 
     def change_speed(self, delta):
         self.speed = max(0, self.speed + delta)
@@ -96,6 +84,7 @@ class Aircraft:
 
     def set_direction(self, target_x, target_y):
         self.direction = math.atan2(target_y - self.y, target_x - self.x)
-        SPEED_FRACTION = 100
-        self.dx = (self.speed / SPEED_FRACTION) * math.cos(self.direction)
-        self.dy = (self.speed / SPEED_FRACTION) * math.sin(self.direction)
+        self._update_velocity()
+
+    def distance_to(self, target_x, target_y):
+        return math.hypot(self.x - target_x, self.y - target_y)

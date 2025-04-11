@@ -139,6 +139,10 @@ GRAY = (200, 200, 200)
 DARK_GRAY = (50, 50, 50)
 RED = (255, 0, 0)
 WHITE = (255, 255, 255)
+BLUE = (0, 0, 255)
+YELLOW = (255, 255, 0)
+CYAN = (0, 255, 255)
+OLIVE = (162, 148, 119)
 
 # -----------------------------
 # Centralized DQN (matches train.py)
@@ -194,7 +198,13 @@ while running:
     pygame.draw.rect(screen, DARK_GRAY, (200, 80, 150, 10))
     # Draw gates
     for gx, gy in env.gate_zones.values():
-        pygame.draw.rect(screen, (0, 255, 255), pygame.Rect(gx - 10, gy - 10, 20, 20))  
+        pygame.draw.rect(screen, CYAN, pygame.Rect(gx - 10, gy - 10, 20, 20))
+    # Draw entires
+    for entry in env.runway_entries.values():
+        pygame.draw.circle(screen, BLUE, entry, 6)
+    # Draw exists
+    for exit in env.runway_exits.values():
+        pygame.draw.circle(screen, OLIVE, exit, 6)
 
 
     # Prepare joint state
@@ -209,7 +219,6 @@ while running:
         obs = obs[:STATE_DIM]
 
     obs_tensor = torch.FloatTensor(obs).unsqueeze(0).to(device)
-
 
     # Get joint actions
     with torch.no_grad():
@@ -239,11 +248,12 @@ while running:
 
         # Speed info
         speed_text = font.render(f"Speed: {int(plane.speed)}", True, WHITE)
+        screen.blit(speed_text, (int(plane.x + 10), int(plane.y + 10)))
         if hasattr(plane, "gate_target"):
             gx, gy = plane.gate_target
-            pygame.draw.circle(screen, (255, 255, 0), (int(gx), int(gy)), 5)  # Yellow dot = assigned gate
-        gate_label = font.render(f"G{i}", True, WHITE)
-        screen.blit(speed_text, (int(plane.x + 10), int(plane.y + 10)))
+            pygame.draw.circle(screen, YELLOW, (int(gx), int(gy)), 5)  # Yellow dot = assigned gate
+            gate_label = font.render(f"G{i}", True, WHITE)
+            screen.blit(gate_label, (int(plane.x + 10), int(plane.y + 10)))
 
     pygame.display.flip()
     clock.tick(30)
