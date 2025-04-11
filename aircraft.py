@@ -11,7 +11,7 @@ class Aircraft:
         "small": {"speed_range": (100, 200), "size": 2, "color": (0, 0, 0)}
     }
 
-    def __init__(self, screen_width, screen_height, entry_edge=None):
+    def __init__(self, screen_width, screen_height, entry_edge=None, entry_target=None, runway_exit=None):
         self.screen_width = screen_width
         self.screen_height = screen_height
 
@@ -22,13 +22,14 @@ class Aircraft:
         self.size = type_info["size"]
         self.color = type_info["color"]
         self.align = False  # Track alignment with wind
-        self.was_aligned = False  # For reward tracking
 
         SPEED_FRACTION = 100
         
         edge = entry_edge if entry_edge else random.choice(["top", "left", "bottom", "right"])
         self.entry_edge = edge
-
+        self.entry_target = entry_target  
+        self.runway_exit = runway_exit
+        
         # Spawn location and direction toward airport center
         if edge == "left":
             self.x = -10
@@ -70,10 +71,7 @@ class Aircraft:
 
         self.direction = self.direction % (2 * np.pi)
 
-        SPEED_FRACTION = 100
-        self.dx = (self.speed / SPEED_FRACTION) * math.cos(self.direction)
-        self.dy = (self.speed / SPEED_FRACTION) * math.sin(self.direction)
-
+        self._update_velocity() 
 
     # Update velocity vector after turning
         SPEED_FRACTION = 100

@@ -208,6 +208,13 @@ class BradleyAirportEnv(gym.Env):
             7: (205, 400),   # Runway 1, direction 1 (South to North)
         }
 
+        self.runway_exits = {
+            4: (400, 205),
+            5: (100, 205),
+            6: (205, 400),
+            7: (205, 100),
+        }
+
         self.planes = []
         self.total_planes = 0
         self.time_step = 0
@@ -358,7 +365,7 @@ class BradleyAirportEnv(gym.Env):
         if not hasattr(plane, 'pre_pos'):
             plane.pre_pos = current_pos
         movement = plane.pre_pos - current_pos
-        reward += 0.001 * movement 
+        reward += 0.005 * movement 
         plane.pre_pos = current_pos
 
         flight_state = int(obs[4])
@@ -368,8 +375,14 @@ class BradleyAirportEnv(gym.Env):
         if plane.flight_state == 0 and self.time_step % 10 == 0:
             reward -= 0.5 
 
-        if action in [0, 1, 2, 3, 12]:
+        if action in [0, 1]:  # turn actions
+            if plane.flight_state == 0:
+                reward -= 2  
+            else:
+                reward += self.move(plane, action)
+        elif action in [2, 3, 12]:  # speed up/down or go_straight
             reward += self.move(plane, action)
+
 
         elif action in [4, 5, 6, 7]:  # Assign runway
             if plane.flight_state != 0:
@@ -528,13 +541,26 @@ class BradleyAirportEnv(gym.Env):
         done = False
         for idx, plane in enumerate(self.planes):
             action = actions[idx] if idx < len(actions) else 12
+            plane.action = action
             if plane.flight_state == 0 and hasattr(plane, 'entry_target'):
                 plane.set_direction(*plane.entry_target)
+                dist = math.hypot(plane.x - plane.entry_target[0], plane.y - plane.entry_target[1])
+                if dist < 20:
+                    plane.flight_state = 2  # now on the runway
+                    if hasattr(plane, 'runway_exit'):
+                        plane.set_direction(*plane.runway_exit)
+                    print(f"Plane {idx} reached entry and switched to runway")
 
             _, reward, d = self.execute_action(plane, action)
 
             total_reward += reward
             done = done or d
+
+            if plane.flight_state == 0:
+                plane.move() 
+            elif action in [8, 9, 11, 12]:  
+                plane.move()
+            
         # Clean up planes
         self.planes = [p for p in self.planes if p.flight_state != 3]
         self.total_planes = len(self.planes)
@@ -542,7 +568,12 @@ class BradleyAirportEnv(gym.Env):
 
     def add_plane(self):
         entry_edge = random.choice(["top", "left", "bottom", "right"])
-        plane = Aircraft(self.screen_width, self.screen_height, entry_edge=entry_edge)
+        entry_key = random.choice(list(self.runway_entries.keys()))
+        entry = self.runway_entries[entry_key]
+        exit = self.runway_exits[entry_key]
+        plane = Aircraft(self.screen_width, self.screen_height, entry_edge=entry_edge, entry_target=entry, runway_exit=exit)
+        plane.entry_target = entry
+        plane.runway_exit = exit
         self.planes.append(plane)
         self.total_planes += 1
 
